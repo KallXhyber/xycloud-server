@@ -4,81 +4,125 @@ from aiohttp import web
 import json
 import os
 
-# Tempat untuk menyimpan 'host' dan 'viewer'
 peers = {}
 
 async def offer(request):
-    """Menerima 'offer' dari satu peer dan meneruskannya ke peer lain."""
     params = await request.json()
-    peer_id = params["id"]
-    print(f"Menerima offer untuk peer {peer_id}")
-    
-    if peer_id not in peers:
+    peer_id = params.get("id")
+    if not peer_id or peer_id not in peers:
         return web.Response(status=404, text="Peer tidak ditemukan")
-        
-    # Teruskan offer ke peer tujuan
-    await peers[peer_id].send_str(json.dumps({
-        "type": "offer",
-        "sdp": params["sdp"]
-    }))
-    
+    print(f"Meneruskan 'offer' ke {peer_id}")
+    await peers[peer_id].send_json({"type": "offer", "sdp": params["sdp"]})
     return web.Response(status=200)
 
 async def answer(request):
-    """Menerima 'answer' dan meneruskannya."""
     params = await request.json()
-    peer_id = params["id"]
-    print(f"Menerima answer untuk peer {peer_id}")
-    
-    if peer_id not in peers:
+    peer_id = params.get("id")
+    if not peer_id or peer_id not in peers:
         return web.Response(status=404, text="Peer tidak ditemukan")
-        
-    # Teruskan answer ke peer tujuan
-    await peers[peer_id].send_str(json.dumps({
-        "type": "answer",
-        "sdp": params["sdp"]
-    }))
-    
+    print(f"Meneruskan 'answer' ke {peer_id}")
+    await peers[peer_id].send_json({"type": "answer", "sdp": params["sdp"]})
+    return web.Response(status=200)
+
+async def ice_candidate(request):
+    params = await request.json()
+    peer_id = params.get("id")
+    if not peer_id or peer_id not in peers:
+        return web.Response(status=404, text="Peer tidak ditemukan")
+    # Teruskan ICE candidate
+    await peers[peer_id].send_json({
+        "type": "ice-candidate",
+        "candidate": params.get("candidate")
+    })
     return web.Response(status=200)
 
 async def websocket_handler(request):
-    """Menangani koneksi WebSocket dari 'host' dan 'viewer'."""
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     
     peer_id = None
     try:
-        # Peer pertama kali terhubung, ambil ID-nya
-        peer_id = request.query.get("id")
-        if not peer_id or peer_id in peers:
-            await ws.send_str(json.dumps({"type": "error", "message": "ID tidak valid atau sudah dipakai"}))
+        # Loop pesan pertama harus 'register'
+        msg = await ws.receive_json()
+        peer_id = msg.get("id")
+        password = msg.get("password")
+        action = msg.get("action")
+
+        if action == "register_host":
+            if not peer_id or not password:
+                await ws.send_json({"type": "error", "message": "ID/Password host tidak valid"})
+                await ws.close()
+                return ws
+            if peer_id in peers:
+                await ws.send_json({"type": "error", "message": "ID ini sudah dipakai"})
+                await ws.close()
+                return ws
+            
+            peers[peer_id] = {'ws': ws, 'password': password}
+            print(f"Host terdaftar: {peer_id}")
+            await ws.send_json({"type": "success", "message": "Host berhasil terdaftar"})
+
+        elif action == "join_viewer":
+            host_id = msg.get("host_id")
+            password = msg.get("password")
+            
+            if not host_id or host_id not in peers:
+                await ws.send_json({"type": "error", "message": "ID Host tidak ditemukan"})
+                await ws.close()
+                return ws
+            
+            if peers[host_id]['password'] != password:
+                await ws.send_json({"type": "error", "message": "Password salah"})
+                await ws.close()
+                return ws
+            
+            print(f"Viewer {peer_id} bergabung ke room {host_id}")
+            # Simpan viewer juga
+            peers[peer_id] = {'ws': ws, 'host_id': host_id}
+            await ws.send_json({"type": "success", "message": "Berhasil bergabung ke room"})
+            # Beri tahu Host bahwa ada viewer baru (penting untuk memulai offer)
+            await peers[host_id]['ws'].send_json({"type": "viewer_joined", "viewer_id": peer_id})
+        
+        else:
             await ws.close()
             return ws
 
-        print(f"Peer {peer_id} terhubung.")
-        peers[peer_id] = ws
-        
+        # Loop utama untuk mendengarkan
         async for msg in ws:
-            # Kita tidak proses pesan masuk di sini
-            # karena 'offer'/'answer' dikirim via HTTP POST
-            pass
+            pass # Komunikasi utama via POST
 
     except Exception as e:
         print(f"Error WebSocket: {e}")
     finally:
         if peer_id and peer_id in peers:
-            del peers[peer_id]
             print(f"Peer {peer_id} terputus.")
+            # Jika host putus, beri tahu viewer
+            # Jika viewer putus, beri tahu host
+            # (Logika ini bisa ditambahkan nanti)
+            del peers[peer_id]
             
     return ws
 
-# --- Bagian Penting untuk Render ---
+async def http_handler(request):
+    """Menyajikan file viewer.html"""
+    script_dir = os.path.dirname(__file__)
+    html_file_path = os.path.join(script_dir, "viewer.html")
+    
+    try:
+        with open(html_file_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return web.Response(text=html_content, content_type="text/html")
+    except FileNotFoundError:
+        return web.Response(status=404, text="File 'viewer.html' tidak ditemukan.")
+
+# --- Rute Baru ---
 app = web.Application()
+app.router.add_get("/", http_handler)       # <-- Rute utama (Website)
+app.router.add_get("/ws", websocket_handler)  # <-- Rute WebSocket
 app.router.add_post("/offer", offer)
 app.router.add_post("/answer", answer)
-app.router.add_get("/ws", websocket_handler)
+app.router.add_post("/ice-candidate", ice_candidate) # <-- Rute Baru
 
-# Render akan kasih tahu kita port berapa yang harus dipakai
 port = int(os.environ.get("PORT", 8080))
-print(f"Menjalankan Signaling Server di http://0.0.0.0:{port}")
+print(f"Menjalankan Signaling Server (v2) di http://0.0.0.0:{port}")
 web.run_app(app, host='0.0.0.0', port=port)
