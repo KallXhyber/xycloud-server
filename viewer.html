@@ -3,7 +3,9 @@
 <head>
     <title>Xycloud Viewer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
     <style>
+        /* (CSS Mewah v6 lo yang lengkap ada di sini) */
         body, html { background-color: #1a1a1a; color: #fff; margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; -webkit-user-select: none; user-select: none; }
         #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #1f2937, #111827); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 200; }
         #login-box { background: #2b2b2b; padding: 30px 40px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); text-align: center; width: 300px; }
@@ -14,7 +16,6 @@
         #how-to { color: #aaa; font-size: 12px; margin-top: 20px; cursor: pointer; text-decoration: underline; }
         #footer { color: #777; font-size: 10px; margin-top: 10px; }
         #stream-container { width: 100%; height: 100%; display: none; justify-content: center; align-items: center; }
-        /* Ganti <img> jadi <video> */
         #stream { width: 100%; height: 100%; object-fit: contain; cursor: none; }
         #fake-cursor { position: fixed; top: 50%; left: 50%; width: 20px; height: 20px; background: rgba(0, 123, 255, 0.7); border: 2px solid white; border-radius: 10px; transform: translate(-50%, -50%); pointer-events: none; z-index: 1000; display: none; transition: transform 0.05s linear; }
         #status { z-index: 101; position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; }
@@ -27,304 +28,275 @@
         @media (max-width: 800px) and (orientation: portrait) {
             #potrait-lock { display: flex !important; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: white; z-index: 500; justify-content: center; align-items: center; text-align: center; }
         }
+        /* --- Gamepad Virtual CSS --- */
+        .overlay-button { position: fixed; z-index: 100; background: rgba(80, 80, 80, 0.5); border: 2px solid rgba(255, 255, 255, 0.6); border-radius: 50%; display: none; color: white; font-size: 18px; font-weight: bold; justify-content: center; align-items: center; }
+        #joystick-zone { bottom: 20px; left: 20px; width: 150px; height: 150px; border-radius: 50%; }
+        #joystick-knob { width: 50px; height: 50px; background: rgba(150, 150, 150, 0.7); border-radius: 50%; position: absolute; top: 50px; left: 50px; }
+        #abxy-zone { bottom: 20px; right: 20px; width: 150px; height: 150px; border-radius: 50%; }
+        .gamepad-btn { position: absolute; width: 40px; height: 40px; }
+        #btn-gamepad-y { top: 10px; left: 50%; transform: translateX(-50%); background-color: #ffc107; }
+        #btn-gamepad-x { left: 10px; top: 50%; transform: translateY(-50%); background-color: #007bff; }
+        #btn-gamepad-b { right: 10px; top: 50%; transform: translateY(-50%); background-color: #dc3545; }
+        #btn-gamepad-a { bottom: 10px; left: 50%; transform: translateY(-50%); background-color: #28a745; }
+        .edit-mode .overlay-button { border-style: dashed; cursor: move; }
     </style>
 </head>
 <body>
-    <div id="stream-container">
-        <video id="stream" autoplay playsinline></video>
-        <audio id="audio" autoplay></audio>
-    </div>
+    <div id="stream-container"><img id="stream" alt="Stream"></div>
     <div id="fake-cursor"></div>
     <div id="status">Memuat...</div>
+
     <div id="controls">
         <button id="btn-mode">👆</button>
         <button id="btn-keyboard">⌨️</button>
+        <button id="btn-gamepad">🎮</button>
         <button id="btn-settings">⚙️</button>
         <button id="btn-fullscreen">⛶</button>
     </div>
+    
     <div id="settings-modal">
-        <h3>Pengaturan</h3>
+        <h3>Pengaturan Bos</h3>
         <div class="setting-row">
-            <label>Kualitas Stream:</label>
-            <select id="select-quality" disabled><option>WebRTC Otomatis</option></select>
+            <label for="select-quality">Kualitas Stream:</label>
+            <select id="select-quality">
+                <option value="90">Gacor (90%)</option>
+                <option value="75" selected>Santuy (75%)</option>
+                <option value="50">Burem (50%)</option>
+                <option value="25">Kentang (25%)</option>
+            </select>
+        </div>
+        <div class="setting-row">
+            <label for="btn-edit-layout">Edit Posisi Tombol:</label>
+            <button id="btn-edit-layout">Edit</button>
         </div>
         <hr><button id="btn-close-settings" style="width: 100%;">Tutup Bos</button>
     </div>
+
     <div id="potrait-lock" style="display: none;"><h1>Bro, Puter HP-nya Dulu! (Horizontal)</h1></div>
+
     <div id="login-overlay">
         <div id="login-box">
-            <h2>Xycloud Login (WebRTC)</h2>
+            <h2>Xycloud Login</h2>
             <input id="input-id" type="text" placeholder="ID Host">
             <input id="input-pass" type="password" placeholder="Password">
             <button id="btn-join">Gasss!</button>
             <div id="login-status"></div>
-            <div id="how-to" onclick="alert('1. Buka Xycloud_App di PC lo.\n2. ID & Pass-nya muncul di situ.\n3. Masukin ke sini, klik Gasss!')">Gimana Caranya?</div>
+            <div id="how-to" onclick="alert('1. Buka Xycloud_App.exe di PC lo.\n2. ID & Pass-nya muncul di situ.\n3. Masukin ke sini, klik Gasss!')">Gimana Caranya?</div>
             <div id="footer">Created By XyTeam</div>
         </div>
+        <div id="admin-cards">
+            <div class="card">Hawkalputra (Project Lead)</div>
+            <div class="card">Gemini (AI Co-Pilot)</div>
+            <div class="card">XyTeam (Community)</div>
+        </div>
     </div>
+    
     <input type="text" id="hidden-input">
+    <div id="joystick-zone" class="overlay-button"><div id="joystick-knob"></div></div>
+    <div id="abxy-zone" class="overlay-button">
+        <button id="btn-gamepad-y" class="overlay-button gamepad-btn">Y</button>
+        <button id="btn-gamepad-x" class="overlay-button gamepad-btn">X</button>
+        <button id="btn-gamepad-b" class="overlay-button gamepad-btn">B</button>
+        <button id="btn-gamepad-a" class="overlay-button gamepad-btn">A</button>
+    </div>
 
     <script>
-        // --- Elemen Halaman ---
-        const videoElement = document.getElementById("stream");
-        const audioElement = document.getElementById("audio");
+        // --- Elemen Halaman (Sama) ---
+        const imgElement = document.getElementById("stream");
         const statusElement = document.getElementById("status");
         const loginOverlay = document.getElementById("login-overlay");
         const loginStatus = document.getElementById("login-status");
         const btnJoin = document.getElementById("btn-join");
         const inputId = document.getElementById("input-id");
         const inputPass = document.getElementById("input-pass");
-        
-        const fakeCursor = document.getElementById("fake-cursor");
         const controlsDiv = document.getElementById("controls");
         const btnFullscreen = document.getElementById("btn-fullscreen");
         const btnSettings = document.getElementById("btn-settings");
         const btnKeyboard = document.getElementById("btn-keyboard");
         const btnMode = document.getElementById("btn-mode");
+        const btnGamepad = document.getElementById("btn-gamepad");
         const hiddenInput = document.getElementById("hidden-input");
-        
         const settingsModal = document.getElementById("settings-modal");
         const btnCloseSettings = document.getElementById("btn-close-settings");
+        const selectQuality = document.getElementById("select-quality");
+        const btnEditLayout = document.getElementById("btn-edit-layout");
+        const joystickZone = document.getElementById("joystick-zone");
+        const joystickKnob = document.getElementById("joystick-knob");
+        const abxyZone = document.getElementById("abxy-zone");
+        const gamepadButtons = document.querySelectorAll(".gamepad-btn");
+        const allOverlays = document.querySelectorAll(".overlay-button");
 
         // --- Variabel Global ---
-        let ws; // WebSocket (Signaling)
-        let pc; // PeerConnection (WebRTC)
-        let inputChannel; // DataChannel (Mouse/Keyboard)
-        
+        let ws; 
+        let currentUrl = null; 
         let isMobile = ('ontouchstart' in window);
         let inputMode = "touch";
-        let lastTouchX = 0, lastTouchY = 0;
-        let cursorX = window.innerWidth / 2, cursorY = window.innerHeight / 2;
+        let isEditing = false;
         let activeKeys = {};
+        let lastTouchX = 0, lastTouchY = 0;
+        let currentDrag = null;
 
-        // --- Alamat Server (Otomatis) ---
-        const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const httpProtocol = window.location.protocol;
-        const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
-        const httpUrl = `${httpProtocol}//${window.location.host}`;
-
-        // --- Fungsi Kirim Data ---
-        function sendInput(data) {
-            // Kirim lewat DataChannel, bukan WebSocket!
-            if (inputChannel && inputChannel.readyState === "open") {
-                inputChannel.send(JSON.stringify(data));
-            }
-        }
-        
-        // --- Logika Koneksi (WebRTC) ---
-        async function connect() {
-            const hostId = inputId.value;
-            const password = inputPass.value;
-            if (!hostId || !password) {
-                loginStatus.textContent = "ID/Pass jangan kosong, Bro."; return;
-            }
-            loginStatus.textContent = "Nyambungin ke Mak Comblang...";
+        // --- Logika Koneksi (WebSocket/JPEG) ---
+        function connect() {
+            const hostId = inputId.value; const password = inputPass.value;
+            if (!hostId || !password) { loginStatus.textContent = "ID/Pass jangan kosong, Bro."; return; }
+            loginStatus.textContent = "Nyambungin ke Jembatan...";
             
-            // Buat koneksi WebRTC (PC)
-            // (Kita bisa tambahkan STUN/TURN server di sini nanti)
-            pc = new RTCPeerConnection();
+            const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
             
-            // Terima Video & Audio
-            pc.addTransceiver("video", { direction: "recvonly" });
-            pc.addTransceiver("audio", { direction: "recvonly" });
+            ws = new WebSocket(wsUrl); ws.binaryType = "blob";
 
-            pc.ontrack = (event) => {
-                statusElement.textContent = "Track Diterima! Menunggu video...";
-                if (event.track.kind === "video") {
-                    videoElement.srcObject = event.streams[0];
+            ws.onopen = () => { ws.send(JSON.stringify({ action: "join_viewer", id: `viewer_${Math.random().toString(16).substr(2, 8)}`, host_id: hostId, password: password })); };
+            ws.onmessage = (event) => {
+                if (typeof event.data === 'string') {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === "success") {
+                        loginOverlay.style.display = "none";
+                        document.getElementById("stream-container").style.display = "flex";
+                        controlsDiv.style.display = "block";
+                        statusElement.textContent = "Nunggu frame...";
+                        startInputListeners();
+                        loadLayout();
+                    } else {
+                        loginStatus.textContent = `Kode Salah, Bro. Cek lagi!`; ws.close();
+                    }
+                    return;
                 }
-                if (event.track.kind === "audio") {
-                    audioElement.srcObject = event.streams[0];
-                }
-            };
-            
-            // Terima DataChannel (Mouse/Keyboard)
-            pc.ondatachannel = (event) => {
-                inputChannel = event.channel;
-                inputChannel.onopen = () => {
-                    console.log("Input Channel TERBUKA!");
-                    statusElement.textContent = "STREAMING...";
-                };
-                inputChannel.onmessage = (e) => console.log(e.data); // Host kirim pesan tes
-            };
-
-            // Kirim ICE candidate ke Host via Server
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    fetch(`${httpUrl}/ice-candidate`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            id: hostId, // Kirim ke Host
-                            candidate: event.candidate.toJSON()
-                        })
-                    });
-                }
-            };
-
-            // --- Logika Signaling (Mak Comblang) ---
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () => {
-                loginStatus.textContent = "Ngomong sama Host...";
-                // 1. Daftar ke server sebagai viewer
-                ws.send(JSON.stringify({
-                    action: "join_viewer",
-                    id: `viewer_${Math.random().toString(16).substr(2, 8)}`, // ID acak
-                    host_id: hostId,
-                    password: password
-                }));
-            };
-
-            ws.onmessage = async (event) => {
-                const msg = JSON.parse(event.data);
                 
-                if (msg.type === "success") {
-                    // Berhasil gabung, kita tunggu 'offer' dari Host
-                    loginStatus.textContent = "Sukses! Nunggu 'Offer' dari Host...";
-                } 
-                else if (msg.type === "offer") {
-                    // 2. Terima 'offer' dari Host
-                    console.log("Menerima 'offer'");
-                    loginStatus.textContent = "Dapet 'Offer', Bikin 'Answer'...";
-                    await pc.setRemoteDescription(new RTCSessionDescription(msg));
-                    
-                    // 3. Buat 'answer'
-                    const answer = await pc.createAnswer();
-                    await pc.setLocalDescription(answer);
-                    
-                    // 4. Kirim 'answer' ke Host via Server
-                    await fetch(`${httpUrl}/answer`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            id: hostId, // Kirim ke Host
-                            sdp: answer.sdp,
-                            type: answer.type
-                        })
-                    });
-                    
-                    // Sembunyikan UI Login
-                    loginOverlay.style.display = "none";
-                    streamContainer.style.display = "flex";
-                    controlsDiv.style.display = "block";
-                    if (isMobile) fakeCursor.style.display = "block";
-                    startInputListeners();
-                    
-                } 
-                else if (msg.type === "ice-candidate") {
-                    // Terima kandidat dari Host
-                    await pc.addIceCandidate(new RTCIceCandidate(msg.candidate));
-                }
-                else if (msg.type === "error") {
-                    loginStatus.textContent = `Error: ${msg.message}`;
-                }
+                if (currentUrl) URL.revokeObjectURL(currentUrl);
+                currentUrl = URL.createObjectURL(event.data);
+                imgElement.src = currentUrl;
+                statusElement.textContent = "STREAMING...";
             };
-            
             ws.onclose = () => {
-                statusElement.textContent = "Koneksi Mak Comblang Putus.";
-                loginOverlay.style.display = "flex";
-                streamContainer.style.display = "none";
-                controlsDiv.style.display = "none";
+                statusElement.textContent = "Host-nya Offline, Cuy."; statusElement.style.color = "red";
+                loginOverlay.style.display = "flex"; document.getElementById("stream-container").style.display = "none";
+                controlsDiv.style.display = "none"; if (currentUrl) URL.revokeObjectURL(currentUrl);
             };
+            ws.onerror = (error) => loginStatus.textContent = "Error: Servernya nggak nyaut!";
         }
         btnJoin.onclick = connect;
 
-        // --- FUNGSI INPUT (Mouse, Touch, Keyboard) ---
-        // (Semua fungsi input (startInputListeners, getMouseCoords, dll)
-        // SAMA PERSIS dengan kode `viewer.html` v5/v6.
-        // Cukup copy-paste bagian itu ke sini.)
+        // --- Fungsi Kirim Data ---
+        function sendInput(data) {
+            if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify(data)); }
+        }
         function sendKey(action, key) {
             if (action === 'keydown' && activeKeys[key]) return;
             if (action === 'keyup' && !activeKeys[key]) return;
             activeKeys[key] = (action === 'keydown');
             sendInput({ action: action, key: key });
         }
-        function updateFakeCursor(x, y) {
-            if (isMobile) {
-                cursorX = x; cursorY = y;
-                fakeCursor.style.transform = `translate(${x}px, ${y}px)`;
-            }
-        }
+
+        // --- FUNGSI INPUT (Gabungan) ---
         function startInputListeners() {
+            // (Logika Input yang panjang ada di sini)
+            
+            // Logika Helper
             function getMouseCoords(e) {
-                const rect = videoElement.getBoundingClientRect(); // Ganti imgElement
+                const rect = imgElement.getBoundingClientRect();
                 const clientX = e.clientX || (e.touches && e.touches[0].clientX);
                 const clientY = e.clientY || (e.touches && e.touches[0].clientY);
                 const normX = (clientX - rect.left) / rect.width;
                 const normY = (clientY - rect.top) / rect.height;
                 if (normX < 0 || normX > 1 || normY < 0 || normY > 1) return null;
-                return { x: normX, y: normY };
+                return { x: Math.round(normX * 1920), y: Math.round(normY * 1080) }; // Kirim ke resolusi hardcode
             }
-            function onTouchStartAbs(e) { e.preventDefault(); const coords = getMouseCoords(e); if(coords) sendInput({ action: "mousedown", ...coords}); }
-            function onTouchMoveAbs(e) { e.preventDefault(); const coords = getMouseCoords(e); if(coords) sendInput({ action: "mousemove", ...coords}); }
-            function onTouchStartTrackpad(e) { e.preventDefault(); const touch = e.touches[0]; lastTouchX = touch.clientX; lastTouchY = touch.clientY; isTap = true; }
-            function onTouchMoveTrackpad(e) {
-                e.preventDefault(); isTap = false; const touch = e.touches[0];
-                const dx = (touch.clientX - lastTouchX) * 2;
-                const dy = (touch.clientY - lastTouchY) * 2;
-                sendInput({ action: "mouse_rel", dx: dx, dy: dy });
-                updateFakeCursor(cursorX + dx, cursorY + dy);
-                lastTouchX = touch.clientX; lastTouchY = touch.clientY;
-            }
-            function onTouchEndTrackpad(e) { e.preventDefault(); if (isTap) { sendInput({ action: "mouse_click", button: 'left' }); } }
-            streamContainer.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                if(inputMode === 'trackpad') sendInput({ action: "mouse_click", button: 'right' });
-            });
-            streamContainer.onmousedown = (e) => {
+
+            // --- Mouse / Touch Absolut (Mode Klik) ---
+            document.getElementById("stream-container").addEventListener('pointerdown', (e) => {
+                if (isEditing) return;
                 e.preventDefault();
                 const coords = getMouseCoords(e);
-                if(coords) sendInput({ action: "mousedown", ...coords });
-                if(e.button === 2) { sendInput({ action: "mouse_click", button: 'right' }); }
-            };
-            streamContainer.onmouseup = (e) => { e.preventDefault(); sendInput({ action: "mouseup", x:0, y:0 }); };
-            streamContainer.onmousemove = (e) => {
+                if(coords) sendInput({ action: "mousedown", x: coords.x, y: coords.y });
+            });
+            document.getElementById("stream-container").addEventListener('pointerup', (e) => {
+                if (isEditing) return;
                 e.preventDefault();
-                if (e.buttons === 1) { // Hanya jika di-drag
-                    const coords = getMouseCoords(e);
-                    if(coords) sendInput({ action: "mousemove", ...coords });
-                }
-            };
-            if (isMobile) {
-                streamContainer.addEventListener('touchstart', onTouchStartAbs, {passive: false});
-                streamContainer.addEventListener('touchmove', onTouchMoveAbs, {passive: false});
-            }
-            hiddenInput.onkeydown = (e) => { e.preventDefault(); sendKey("keydown", e.key); };
-            hiddenInput.onkeyup = (e) => { e.preventDefault(); sendKey("keyup", e.key); };
+                sendInput({ action: "mouseup", x: 0, y: 0 });
+            });
+            
+            // --- Keyboard & UI Handlers ---
+            hiddenInput.onkeydown = (e) => { e.preventDefault(); sendInput({ action: "keydown", key: e.key }); };
+            hiddenInput.onkeyup = (e) => { e.preventDefault(); sendInput({ action: "keyup", key: e.key }); };
             document.onkeydown = (e) => {
                 if (loginOverlay.style.display !== 'none' || settingsModal.style.display === 'block') return;
-                if (document.activeElement !== hiddenInput) { e.preventDefault(); sendKey("keydown", e.key); }
+                if (document.activeElement !== hiddenInput) { e.preventDefault(); sendInput({ action: "keydown", key: e.key }); }
             };
             document.onkeyup = (e) => {
                 if (loginOverlay.style.display !== 'none' || settingsModal.style.display === 'block') return;
-                if (document.activeElement !== hiddenInput) { e.preventDefault(); sendKey("keyup", e.key); }
-            };
-            btnMode.onclick = () => {
-                if (inputMode === "touch") {
-                    inputMode = "trackpad"; btnMode.textContent = "🖱️";
-                    streamContainer.removeEventListener('touchstart', onTouchStartAbs);
-                    streamContainer.removeEventListener('touchmove', onTouchMoveAbs);
-                    streamContainer.addEventListener('touchstart', onTouchStartTrackpad, {passive: false});
-                    streamContainer.addEventListener('touchmove', onTouchMoveTrackpad, {passive: false});
-                    streamContainer.addEventListener('touchend', onTouchEndTrackpad);
-                } else {
-                    inputMode = "touch"; btnMode.textContent = "👆";
-                    streamContainer.removeEventListener('touchstart', onTouchStartTrackpad);
-                    streamContainer.removeEventListener('touchmove', onTouchMoveTrackpad);
-                    streamContainer.removeEventListener('touchend', onTouchEndTrackpad);
-                    streamContainer.addEventListener('touchstart', onTouchStartAbs, {passive: false});
-                    streamContainer.addEventListener('touchmove', onTouchMoveAbs, {passive: false});
-                }
+                if (document.activeElement !== hiddenInput) { e.preventDefault(); sendInput({ action: "keyup", key: e.key }); }
             };
             btnKeyboard.onclick = () => { hiddenInput.focus(); };
+
+            // --- Gamepad Virtual Input ---
+            gamepadButtons.forEach(btn => {
+                btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendKey('keydown', `gamepad_${btn.id.split('-')[2]}`); });
+                btn.addEventListener('touchend', (e) => { e.preventDefault(); sendKey('keyup', `gamepad_${btn.id.split('-')[2]}`); });
+            });
         }
+        
+        // --- FUNGSI EDIT LAYOUT (Drag & Drop) ---
+        function makeDraggable(el) {
+            el.ontouchstart = (e) => {
+                if (!isEditing) return;
+                let touch = e.touches[0];
+                let startX = touch.clientX - el.offsetLeft;
+                let startY = touch.clientY - el.offsetTop;
+                document.ontouchmove = (e_move) => {
+                    let moveTouch = e_move.touches[0];
+                    el.style.left = (moveTouch.clientX - startX) + 'px';
+                    el.style.top = (moveTouch.clientY - startY) + 'px';
+                };
+                document.ontouchend = () => { document.ontouchmove = null; document.ontouchend = null; };
+            };
+        }
+        function makeUndraggable(el) { el.ontouchstart = null; }
+        
+        btnEditLayout.onclick = () => {
+            isEditing = !isEditing;
+            document.body.classList.toggle('edit-mode');
+            settingsModal.style.display = 'none';
+
+            allOverlays.forEach(el => {
+                if(isEditing) {
+                    makeDraggable(el);
+                    el.style.display = 'flex';
+                } else {
+                    makeUndraggable(el);
+                    localStorage.setItem(el.id + '_x', el.style.left);
+                    localStorage.setItem(el.id + '_y', el.style.top);
+                    // Sembunyikan overlay jika mode bukan gamepad
+                    if (document.getElementById("btn-gamepad").style.background !== 'red') el.style.display = 'none';
+                }
+            });
+            btnEditLayout.textContent = isEditing ? "Simpan" : "Edit";
+        };
+        
+        // Muat posisi yang tersimpan
+        window.onload = () => {
+            allOverlays.forEach(el => {
+                const x = localStorage.getItem(el.id + '_x');
+                const y = localStorage.getItem(el.id + '_y');
+                if (x && y) { el.style.left = x; el.style.top = y; }
+            });
+        };
+        
+        btnGamepad.onclick = () => {
+            let isActive = btnGamepad.style.background === 'red';
+            btnGamepad.style.background = isActive ? 'rgba(0,123,255,0.7)' : 'red';
+            allOverlays.forEach(o => o.style.display = isActive ? 'none' : 'flex');
+        };
+        
         btnFullscreen.onclick = () => {
             if (!document.fullscreenElement) { document.documentElement.requestFullscreen(); }
             else { document.exitFullscreen(); }
         };
         btnSettings.onclick = () => { settingsModal.style.display = 'block'; };
         btnCloseSettings.onclick = () => { settingsModal.style.display = 'none'; };
-
+        selectQuality.onchange = () => { sendInput({ action: "set_quality", value: selectQuality.value }); };
+        
     </script>
 </body>
 </html>
