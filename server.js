@@ -10,8 +10,13 @@ fastify.register(require('@fastify/cors'), {
 });
 
 // Siapin Socket.IO, nempel di server Fastify
-const io = socketio(fastify.server);
-
+const io = socketio(fastify.server, {
+  // INI BAGIAN PENTINGNYA
+  cors: {
+    origin: "*", // Izinin SEMUA domain (termasuk localhost)
+    methods: ["GET", "POST"] // Izinin metode ini
+  }
+});
 // --- DATABASE SEMENTARA ---
 // Pake Map biar kenceng. Isinya nyimpen ID Host yg lagi online.
 // Strukturnya: Map<hostId, { socketId: '...', password: '...' }>
@@ -148,5 +153,6 @@ const start = async () => {
     process.exit(1);
   }
 };
+
 
 start();
