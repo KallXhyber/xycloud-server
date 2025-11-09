@@ -1,28 +1,40 @@
-// server.js
+// server.js (v2.0 - Versi Redis)
 
-// Import belanjaan kita
+// Panggil "brankas" (dotenv) paling pertama
+require('dotenv').config();
+
 const fastify = require('fastify')({ logger: true });
 const socketio = require('socket.io');
+const Redis = require('ioredis'); // Panggil "sopir" Redis
 
-// Kita butuh CORS biar web/app bisa ngomong ke server ini
+// --- KONEKSI BUKU TAMU ABADI (REDIS) ---
+// Dia otomatis nyari "REDIS_URL" dari file .env lu
+const redis = new Redis(process.env.REDIS_URL);
+
+redis.on('connect', () => {
+  fastify.log.info('[Redis] Berhasil konek ke Buku Tamu Abadi!');
+});
+redis.on('error', (err) => {
+  fastify.log.error(`[Redis] GAGAL KONEK: ${err.message}`);
+  process.exit(1); // Kalo Redis gagal, matiin server. (Wajib)
+});
+// ----------------------------------------
+
 fastify.register(require('@fastify/cors'), {
-  origin: "*", // Nanti ini diganti domain web lu kalo udah production
+  origin: "*", 
 });
 
-// Siapin Socket.IO, nempel di server Fastify
 const io = socketio(fastify.server, {
-  // INI BAGIAN PENTINGNYA
   cors: {
-    origin: "*", // Izinin SEMUA domain (termasuk localhost)
-    methods: ["GET", "POST"] // Izinin metode ini
+    origin: "*", 
+    methods: ["GET", "POST"]
   }
 });
-// --- DATABASE SEMENTARA ---
-// Pake Map biar kenceng. Isinya nyimpen ID Host yg lagi online.
-// Strukturnya: Map<hostId, { socketId: '...', password: '...' }>
-const activeHosts = new Map();
 
-// --- LOGIKA UTAMA SOCKET.IO DIMULAI DARI SINI ---
+// --- DATABASE LAMA (Map) UDAH DIHAPUS ---
+// const activeHosts = new Map(); <-- BYE BYE AMNESIA
+
+// --- LOGIKA UTAMA SOCKET.IO (Versi Redis) ---
 
 io.on('connection', (socket) => {
   fastify.log.info(`[Socket CONNECT] Ada yang nyambung, ID: ${socket.id}`);
@@ -30,112 +42,127 @@ io.on('connection', (socket) => {
   // =============================================
   // EVENT 1: HOST DAFTAR (dari .EXE)
   // =============================================
-  socket.on('host-register', ({ id, password }) => {
-    // Cek ID-nya udah dipake belom
-    if (activeHosts.has(id)) {
-      fastify.log.warn(`[Host GAGAL] ID: ${id} udah dipake.`);
-      // Kirim balik error ke Host .EXE
-      socket.emit('host-register-failed', { message: 'ID sudah terpakai.' });
-      return;
+  socket.on('host-register', async ({ id, password }) => {
+    // Kita pake 'host:' sebagai prefix biar rapi
+    const hostKey = `host:${id}`;
+    // Kita simpen 'socket:...' buat nyari pas disconnect
+    const socketKey = `socket:${socket.id}`;
+    
+    try {
+      // Cek ID-nya udah dipake belom di Redis
+      const existing = await redis.exists(hostKey);
+      
+      if (existing) {
+        fastify.log.warn(`[Host GAGAL] ID: ${id} udah dipake.`);
+        socket.emit('host-register-failed', { message: 'ID sudah terpakai.' });
+        return;
+      }
+
+      // Kalo aman, daftarin si Host ke Redis
+      const hostData = JSON.stringify({
+        socketId: socket.id,
+        password: password,
+      });
+      
+      // Simpen data Host-nya
+      await redis.set(hostKey, hostData);
+      // Simpen data "kebalikan" (Socket -> ID)
+      await redis.set(socketKey, id);
+      
+      fastify.log.info(`[Host READY] ID: ${id} (Socket: ${socket.id}) berhasil online di Redis.`);
+      socket.emit('host-register-success', { hostId: id });
+      
+    } catch (err) {
+      fastify.log.error(`[Redis Error] Gagal register host: ${err.message}`);
+      socket.emit('host-register-failed', { message: 'Server database error.' });
     }
-
-    // Kalo aman, daftarin si Host
-    activeHosts.set(id, {
-      socketId: socket.id,
-      password: password,
-    });
-
-    fastify.log.info(`[Host READY] ID: ${id} (Socket: ${socket.id}) berhasil online.`);
-    // Kirim balik sukses ke Host .EXE
-    socket.emit('host-register-success', { hostId: id });
   });
 
   // =============================================
   // EVENT 2: KLIEN MAU KONEK (dari Web/APK)
   // =============================================
-  socket.on('client-request-connect', ({ hostId, password }) => {
+  socket.on('client-request-connect', async ({ hostId, password }) => {
     fastify.log.info(`[Klien REQUEST] Klien ${socket.id} mau konek ke ${hostId}`);
+    const hostKey = `host:${hostId}`;
     
-    // 1. Cek Host-nya ada (online) apa enggak
-    const host = activeHosts.get(hostId);
-    if (!host) {
-      fastify.log.warn(`[Klien GAGAL] Host ${hostId} gak online.`);
-      socket.emit('client-connect-failed', { message: 'Host tidak ditemukan / offline.' });
-      return;
+    try {
+      // 1. Cek Host-nya ada (online) apa enggak di Redis
+      const data = await redis.get(hostKey);
+      
+      if (!data) {
+        fastify.log.warn(`[Klien GAGAL] Host ${hostId} gak online (gak ada di Redis).`);
+        socket.emit('client-connect-failed', { message: 'Host tidak ditemukan / offline.' });
+        return;
+      }
+
+      // Kalo ada, 'data' itu masih string, kita parse
+      const host = JSON.parse(data);
+
+      // 2. Cek password-nya bener apa enggak
+      if (host.password !== password) {
+        fastify.log.warn(`[Klien GAGAL] Password salah untuk Host ${hostId}.`);
+        socket.emit('client-connect-failed', { message: 'Password salah.' });
+        return;
+      }
+
+      // 3. Kalo semua aman, bilang ke Host .EXE
+      fastify.log.info(`[Klien MATCH] Klien ${socket.id} match sama Host ${hostId}. Mulai signaling...`);
+      
+      io.to(host.socketId).emit('client-wants-to-connect', {
+        clientId: socket.id,
+      });
+
+      socket.emit('host-is-ready', {
+        hostId: hostId,
+        hostSocketId: host.socketId,
+      });
+      
+    } catch (err) {
+      fastify.log.error(`[Redis Error] Gagal konek klien: ${err.message}`);
+      socket.emit('client-connect-failed', { message: 'Server database error.' });
     }
-
-    // 2. Cek password-nya bener apa enggak
-    if (host.password !== password) {
-      fastify.log.warn(`[Klien GAGAL] Password salah untuk Host ${hostId}.`);
-      socket.emit('client-connect-failed', { message: 'Password salah.' });
-      return;
-    }
-
-    // 3. Kalo semua aman, bilang ke Host .EXE
-    fastify.log.info(`[Klien MATCH] Klien ${socket.id} match sama Host ${hostId}. Mulai signaling...`);
-    
-    // Kirim ke Host .EXE, bilang "Woi, ada klien mau nyambung nih"
-    io.to(host.socketId).emit('client-wants-to-connect', {
-      clientId: socket.id, // Kasih tau ID si klien
-    });
-
-    // Kirim ke Klien, bilang "Oke, Host-nya udah siap"
-    socket.emit('host-is-ready', {
-      hostId: hostId,
-      hostSocketId: host.socketId,
-    });
   });
 
   // =============================================
   // EVENT 3, 4, 5: "SURAT-SURATAN" WebRTC
-  // Ini bagian "Mak Comblang" P2P-nya
+  // Ini gak berubah, tetep gas
   // =============================================
-  
-  // Nganterin 'offer' (surat penawaran) dari satu pihak ke pihak lain
   socket.on('webrtc-offer', ({ targetSocketId, sdp }) => {
-    fastify.log.info(`[WebRTC] Nganterin OFFER dari ${socket.id} ke ${targetSocketId}`);
-    io.to(targetSocketId).emit('webrtc-offer', {
-      senderSocketId: socket.id,
-      sdp: sdp,
-    });
+    io.to(targetSocketId).emit('webrtc-offer', { senderSocketId: socket.id, sdp: sdp });
   });
-
-  // Nganterin 'answer' (surat balasan)
   socket.on('webrtc-answer', ({ targetSocketId, sdp }) => {
-    fastify.log.info(`[WebRTC] Nganterin ANSWER dari ${socket.id} ke ${targetSocketId}`);
-    io.to(targetSocketId).emit('webrtc-answer', {
-      senderSocketId: socket.id,
-      sdp: sdp,
-    });
+    io.to(targetSocketId).emit('webrtc-answer', { senderSocketId: socket.id, sdp: sdp });
   });
-
-  // Nganterin 'ice-candidate' (info alamat/rute)
   socket.on('webrtc-ice-candidate', ({ targetSocketId, candidate }) => {
-    // fastify.log.info(`[WebRTC] Nganterin ICE dari ${socket.id} ke ${targetSocketId}`);
-    io.to(targetSocketId).emit('webrtc-ice-candidate', {
-      senderSocketId: socket.id,
-      candidate: candidate,
-    });
+    io.to(targetSocketId).emit('webrtc-ice-candidate', { senderSocketId: socket.id, candidate: candidate });
   });
-
 
   // =============================================
   // EVENT 6: KALO ADA YANG PUTUS KONEKSI
   // =============================================
-  socket.on('disconnect', () => {
+  socket.on('disconnect', async () => {
     fastify.log.info(`[Socket DISCONNECT] ${socket.id} putus koneksi.`);
-
+    
     // Kita harus cek, yang putus ini Host bukan?
-    // Kalo dia Host, kita harus apus dari daftar 'activeHosts'
-    for (const [id, hostData] of activeHosts.entries()) {
-      if (hostData.socketId === socket.id) {
-        activeHosts.delete(id);
-        fastify.log.info(`[Host OFFLINE] Host ${id} (Socket: ${socket.id}) sekarang offline.`);
+    // Kita pake data "kebalikan" yg kita simpen
+    const socketKey = `socket:${socket.id}`;
+    
+    try {
+      const hostId = await redis.get(socketKey);
+      
+      // Kalo 'hostId' ada, berarti bener dia Host
+      if (hostId) {
+        const hostKey = `host:${hostId}`;
         
-        // (Opsional) Kasih tau klien lain yg mungkin lagi nyambung ke dia
-        // ... (logika ini bisa ditambah nanti)
-        break;
+        // Hapus data Host & data kebalikan dari Redis
+        await redis.del(hostKey);
+        await redis.del(socketKey);
+        
+        fastify.log.info(`[Host OFFLINE] Host ${hostId} (Socket: ${socket.id}) sekarang offline (dihapus dari Redis).`);
       }
+      
+    } catch (err) {
+      fastify.log.error(`[Redis Error] Gagal pas disconnect: ${err.message}`);
     }
   });
 });
@@ -143,16 +170,12 @@ io.on('connection', (socket) => {
 // --- SURUH SERVERNYA JALAN ---
 const start = async () => {
   try {
-    // Port 3001 (atau bebas, asal jangan 3000 biar gak bentrok sama web)
-    // Render.com bakal otomatis pake port dari environment
     const port = process.env.PORT || 3001;
     await fastify.listen({ port: port, host: '0.0.0.0' });
-    fastify.log.info(`Server 'Mak Comblang' XYCLOUD jalan di port ${port}`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);
   }
 };
-
 
 start();
